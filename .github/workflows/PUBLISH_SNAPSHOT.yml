@@ -1,0 +1,50 @@
+on:
+  push:
+    branches:
+     - main
+
+name: Create Release Snapshot
+
+jobs:
+  build:
+    name: Create Release Snapshot
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: '5.0.x' # SDK Version to use; x will use the latest version of the 5.0.x channel
+      - name: setup vintage story dependencies
+        run: |
+          mkdir bin
+          mkdir bin/vs_server
+          wget https://cdn.vintagestory.at/gamefiles/stable/vs_server_1.14.5.tar.gz --quiet -O bin/vs_server.tar.gz
+          tar -xf bin/vs_server.tar.gz -C bin/vs_server/
+          echo "VINTAGE_STORY=bin/vs_server" >> $GITHUB_ENV
+      - run: dotnet build -c Release
+      - name: Set enviroment for github-release
+        run: |
+          echo "BRANCH=${GITHUB_REF##*/}" >> $GITHUB_ENV
+          echo "VERSION=$(cat resources/modinfo.json | jq -r .version)" >> $GITHUB_ENV
+      - name: Set enviroment RELEASE_TAG
+        run: |
+          echo "RELEASE_TAG=snapshot/${{ env.VERSION }}-${{ env.BRANCH }}-$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
+          echo "FILE_VERSION=${{ env.VERSION }}-${{ env.BRANCH }}-$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
+      - name: print env
+        run: |
+          echo "BRANCH=${{ env.BRANCH }}"
+          echo "VERSION=${{ env.VERSION }}"
+          echo "RELEASE_TAG=${{ env.RELEASE_TAG }}"
+      - name: Create prerelease
+        uses: meeDamian/github-release@2.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ env.RELEASE_TAG }}
+          commitish: ${{ env.GITHUB_SHA }}
+          name: ${{ env.VERSION }}
+          prerelease: true
+          body: Snapshot Release ${{ env.VERSION }}
+          gzip: folders
+          files: >
+            TwitchEmotes-${{ env.FILE_VERSION }}.zip:bin/TwitchEmotes.zip

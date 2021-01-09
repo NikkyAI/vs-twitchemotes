@@ -1,0 +1,61 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<TargetFramework>net452</TargetFramework>
+		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+
+		<AssemblyName>TwitchEmotes</AssemblyName>
+		<AssemblyTitle>Twitch Emotes</AssemblyTitle>
+		<Version>1.0.0</Version>
+
+		<Description>Display Twitch Emotes</Description>
+		<Authors>NikkyAI</Authors>
+		<WebPage>https://github.com/NikkyAI/vs-twitchemotes</WebPage>
+	</PropertyGroup>
+	
+	<ItemGroup>
+		<Reference Include="VintagestoryAPI">
+			<HintPath>$(VINTAGE_STORY)/VintagestoryAPI.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="VintagestoryLib">
+			<HintPath>$(VINTAGE_STORY)/VintagestoryLib.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<!-- <Reference Include="VSEssentials">
+			<HintPath>$(VINTAGE_STORY)/Mods/VSEssentials.dll</HintPath>
+			<Private>false</Private>
+		</Reference> -->
+		<!-- <Reference Include="VSSurvivalMod">
+			<HintPath>$(VINTAGE_STORY)/Mods/VSSurvivalMod.dll</HintPath>
+			<Private>false</Private>
+		</Reference> -->
+		<Reference Include="harmony">
+			<HintPath>$(VINTAGE_STORY)/Lib//0Harmony.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="cairo-sharp">
+			<HintPath>$(VINTAGE_STORY)/Lib/cairo-sharp.dll</HintPath>
+			<Private>false</Private>
+		</Reference>
+		<Reference Include="Newtonsoft.Json">
+			<HintPath>$(VINTAGE_STORY)/Lib/Newtonsoft.Json.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<PackageReference Include="System.Net.Http" Version="4.0.0">
+			<Private>false</Private>
+		</PackageReference>
+	</ItemGroup>
+	
+	<ItemGroup>
+		<None Include="UNLICENSE" CopyToOutputDirectory="PreserveNewest" />
+		<None Include="resources/**">
+			<Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</None>
+	</ItemGroup>
+	
+	<Target Name="Package" AfterTargets="PostBuildEvent">
+		<ZipDirectory DestinationFile="bin/$(TargetName).zip" SourceDirectory="$(TargetDir)" Overwrite="true" />
+	</Target>
+</Project>

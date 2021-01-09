@@ -1,12 +1,14 @@
 {
 	"type": "code",
-	"name": "HowtoExample",
-	"modid": "howtoexample",
-	"version": "1.2.0",
+	"name": "Twitch Emotes",
+	"modid": "twitchemotes",
+	"version": "0.0.1",
 	
-	"description" : "An example mod using VS Code and .NET Core",
-	"website": "https://github.com/copygirl/howto-example-mod",
-	"authors": [ "copygirl" ],
+	"description" : "Display Twitch Emotes",
+	"website": "https://github.com/Nikky/vs-twitchemotes",
+	"authors": [ "Nikky" ],
+
+	"side": "Client",
 	
 	"dependencies": {
 		"game": "1.8.0"
