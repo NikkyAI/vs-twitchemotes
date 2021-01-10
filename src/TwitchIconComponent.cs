@@ -31,6 +31,7 @@ namespace TwitchEmotes
 
         public override void ComposeElements(Context ctxStatic, ImageSurface surface)
         {
+            _mod.Logger.Debug("rendering emote {0}", _emoteKey);
             var textureSurface = new ImageSurface(_filepath);
             var pattern = new SurfacePattern(textureSurface);
 

@@ -136,24 +136,12 @@ namespace TwitchEmotes
                     .Split(" ".ToCharArray())
                     .Select(word =>
                         {
-                            var filepath = _emotes.GetEmoteFilepath(word);
+                            //TODO: somehow do not block here
+                            var filepath = _emotes.GetEmoteFilepathAsync(word).Result; 
                             if (filepath != null)
                             {
                                 _mod.Logger.Debug("found twitch icon: '{0}'", word);
                                 return $"<twitch_icon name=\"{word}\"/>";
-                            }
-
-                            foreach (var code in _emotes.emotes.Keys)
-                            {
-                                if (Regex.IsMatch(word, "^"+code+"$"))
-                                {
-                                    filepath = _emotes.GetEmoteFilepath(code);
-                                    if (filepath != null)
-                                    {
-                                        _mod.Logger.Debug("found twitch icon: '{0}'", code);
-                                        return $"<twitch_icon name=\"{code}\"/>";
-                                    }
-                                }
                             }
 
                             return word;

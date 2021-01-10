@@ -2,14 +2,10 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Runtime.Remoting.Messaging;
-using System.Text;
-using System.Threading;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using HarmonyLib;
 using Newtonsoft.Json;
 using TwitchEmotes.Api;
 using Vintagestory.API.Client;
@@ -25,6 +21,7 @@ namespace TwitchEmotes
         public readonly int Id;
         public readonly string Code;
         public readonly string Variant;
+        public readonly bool IsRegex;
 
         public EmoteInfo(string channelName, string url, string filepath, int id, string code, string variant)
         {
@@ -34,6 +31,7 @@ namespace TwitchEmotes
             Id = id;
             Code = code;
             Variant = variant;
+            IsRegex = Regex.IsMatch(code, "^[a-zA-Z0-9]*$");
         }
     }
 
@@ -75,19 +73,40 @@ namespace TwitchEmotes
 
         public string? GetEmoteFilepath(string emotekey)
         {
+            return GetEmoteFilepathAsync(emotekey).Result;
+        }
+
+        public async Task<string?> GetEmoteFilepathAsync(string emotekey)
+        {
             // TODO: download as required ...
             
             try
             {
                 if (!emotes.TryGetValue(emotekey, out var emote))
                 {
-                    return null;
+                    var found = false;
+                    foreach (var pair in emotes)
+                    {
+                        var code = pair.Key;
+                        var emoteCandidate = pair.Value;
+                        if(!emoteCandidate.IsRegex) continue;
+                        if (Regex.IsMatch(emotekey, "^"+code+"$"))
+                        {
+                            emote = pair.Value;
+                            found = true;
+                            break;
+                        }
+                    }
+
+                    if (!found)
+                    {
+                        return null;
+                    }
                 }
 
                 if (!File.Exists(emote.Filepath))
                 {
-                    DownloadEmote(emotekey, emote.Url, emote.Filepath, emote.ChannelName, emote.Code, emote.Variant)
-                        .Wait();
+                    await DownloadEmote(emotekey, emote.Url, emote.Filepath, emote.ChannelName, emote.Code);
 
                     if (!File.Exists(emote.Filepath))
                     {
@@ -105,9 +124,7 @@ namespace TwitchEmotes
             }
         }
 
-
-        private async Task DownloadEmote(string key, string url, string filepath, string channel_name, string code,
-            string variant)
+        private async Task DownloadEmote(string key, string url, string filepath, string channel_name, string code)
         {
             try
             {
