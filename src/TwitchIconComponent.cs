@@ -50,7 +50,7 @@ namespace TwitchEmotes
             );
             matrix1.Scale(scale, scale);
             ctxStatic.Matrix = matrix1;
-            
+
             ctxStatic.SetSource(pattern);
             ctxStatic.NewPath();
             ctxStatic.MoveTo(0, 0);
@@ -65,7 +65,11 @@ namespace TwitchEmotes
             ctxStatic.Restore();
 
             var scaleZoomed = scale * 3;
-            ImageSurface zoomedSurface = new (Format.Argb32, (int) (imageWidth * scaleZoomed), (int) (imageHeight * scaleZoomed));
+            ImageSurface zoomedSurface = new(
+                Format.Argb32, 
+                (int) (imageWidth * scaleZoomed), 
+                (int) (imageHeight * scaleZoomed)
+            );
             Context zoomedCtx = new(zoomedSurface);
             Matrix matrix2 = zoomedCtx.Matrix;
             matrix2.Scale(scaleZoomed, scaleZoomed);
@@ -87,7 +91,6 @@ namespace TwitchEmotes
             zoomedCtx.Dispose();
 
 
-
             var leftMostX = 999999.0;
             var topMostY = 999999.0;
             double rightMostX = 0.0;
@@ -100,7 +103,8 @@ namespace TwitchEmotes
                 rightMostX = Math.Max(rightMostX, line.Bounds.X + line.Bounds.Width);
                 bottomMostY = Math.Max(bottomMostY, line.Bounds.Y + line.Bounds.Height);
             }
-            ImageSurface hoverSurface = new (Format.Argb32, (int) (rightMostX - leftMostX),
+
+            ImageSurface hoverSurface = new(Format.Argb32, (int) (rightMostX - leftMostX),
                 (int) (bottomMostY - topMostY));
             Context hoverCtx = new(hoverSurface);
             // ctx.Antialias = Antialias.Default;
@@ -153,8 +157,10 @@ namespace TwitchEmotes
             lines = textUtil.Lineize(this._font, _emoteKey, flowPath, lineX + this.PaddingLeft, lineY);
             BoundsPerLine = new LineRectangled[1]
             {
-                new(lineX, lineY, GuiElement.scaled(this._font.UnscaledFontsize),
-                    GuiElement.scaled(this._font.UnscaledFontsize))
+                new(lineX, lineY, 
+                    GuiElement.scaled(this._font.UnscaledFontsize),
+                    GuiElement.scaled(this._font.UnscaledFontsize) 
+                )
             };
             return false;
         }
