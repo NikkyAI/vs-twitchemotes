@@ -1,9 +1,15 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Runtime.Remoting.Messaging;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using HarmonyLib;
 using Newtonsoft.Json;
 using TwitchEmotes.Api;
 using Vintagestory.API.Client;
@@ -11,107 +17,238 @@ using Vintagestory.API.Common;
 
 namespace TwitchEmotes
 {
+    public struct EmoteInfo
+    {
+        public readonly string ChannelName;
+        public readonly string Url;
+        public readonly string Filepath;
+        public readonly int Id;
+        public readonly string Code;
+        public readonly string Variant;
+
+        public EmoteInfo(string channelName, string url, string filepath, int id, string code, string variant)
+        {
+            ChannelName = channelName;
+            Url = url;
+            Filepath = filepath;
+            Id = id;
+            Code = code;
+            Variant = variant;
+        }
+    }
+
     public class TwitchEmotes
     {
-        static readonly HttpClient client = new HttpClient();
-        
+        static readonly HttpClient _client = new HttpClient();
+
         private readonly Mod _mod;
         private readonly ICoreClientAPI _api;
 
-        public System.Collections.Concurrent.ConcurrentDictionary<string, string> emotes =
-            new ConcurrentDictionary<string, string>();
-        public System.Collections.Concurrent.ConcurrentDictionary<string, string> modifiedEmotes =
-            new ConcurrentDictionary<string, string>();
+        public ConcurrentDictionary<string, EmoteInfo> emotes = new();
 
+        public ConcurrentDictionary<string, string[]> emotesByChannel = new();
 
-        public TwitchEmotes(Mod mod, ICoreClientAPI api)
+        public TwitchEmotes(Mod mod, ICoreClientAPI api, string[] channels)
         {
             _mod = mod;
             _api = api;
 
-            Task.Run(async () =>
+            _mod.Logger.Notification($"loading emotes for {channels.Length} channels");
+            foreach (var channel in channels)
+            {
+                _mod.Logger.Notification($"loading emotes for channel: {channel}");
+                try
                 {
-                    GetEmotesForChannel(0);
-                    GetEmotesForChannel(96743665);
-                    GetEmotesForChannel(583196385);
+                    var channel_id = ChannelIdFromName(channel).Result;
+                    if (channel_id != null)
+                    {
+                        _mod.Logger.Notification($"loading emotes for channel: {channel_id}");
+                        GetEmotesForChannel((int) channel_id, channel).Wait();
+                    }
                 }
-            );
+                catch (Exception e)
+                {
+                    _mod.Logger.Error("error: {0}", e);
+                }
+            }
         }
 
         public string? GetEmoteFilepath(string emotekey)
         {
-            if (emotes.TryGetValue(emotekey, out var emote))
+            // TODO: download as required ...
+            
+            try
             {
-                return emote;
-            }
-            else if (modifiedEmotes.TryGetValue(emotekey, out var modifiedEmote))
-            {
-                return modifiedEmote;
-            }
+                if (!emotes.TryGetValue(emotekey, out var emote))
+                {
+                    return null;
+                }
 
-            return null;
+                if (!File.Exists(emote.Filepath))
+                {
+                    DownloadEmote(emotekey, emote.Url, emote.Filepath, emote.ChannelName, emote.Code, emote.Variant)
+                        .Wait();
+
+                    if (!File.Exists(emote.Filepath))
+                    {
+                        _mod.Logger.Error("failed to download {0} from {1}", emotekey, emote.Url);
+                        return null;
+                    }
+                }
+
+                return emote.Filepath;
+            }
+            catch (Exception e)
+            {
+                _mod.Logger.Error("failed to retrieve {0} exception: {1}", emotekey, e);
+                return null;
+            }
         }
 
-        private async void DownloadEmote(string channel_name, int emote_id, string key, string variant, string url)
+
+        private async Task DownloadEmote(string key, string url, string filepath, string channel_name, string code,
+            string variant)
         {
-            try {
-                var filepath = Path.Combine(_api.DataBasePath, "Cache", "twitchemotes", channel_name, $"{emote_id+variant}.png");
+            try
+            {
+                _mod.Logger.VerboseDebug($"filepath: {filepath}", filepath);
                 if (File.Exists(filepath))
                 {
-                    _mod.Logger.Debug("file for {0} exists already", key);
-                    if (variant == "")
-                    {
-                        emotes[key] = filepath;
-                    }
-                    else
-                    {
-                        modifiedEmotes[key] = filepath;
-                    }
-                    return;
-                }
-                
-                var bytes = await client.GetByteArrayAsync(url);
-
-                Directory.CreateDirectory(Path.GetDirectoryName(filepath));
-                File.WriteAllBytes(filepath, bytes);
-
-                if (variant == "")
-                {
-                    emotes[key] = filepath;
+                    _mod.Logger.VerboseDebug("file for {0} exists already", code);
                 }
                 else
                 {
-                    modifiedEmotes[key] = filepath;
+                    _mod.Logger.Debug("downloading file for {0} {1}", channel_name, key);
+                    var bytes = await _client.GetByteArrayAsync(url);
+
+                    Directory.CreateDirectory(Path.GetDirectoryName(filepath));
+                    File.WriteAllBytes(filepath, bytes);
                 }
-            } catch(Exception e) {
-                _mod.Logger.Error("failed to download {0} from {1}, {2}", key, url, e);
+            }
+            catch (Exception e)
+            {
+                _mod.Logger.Error("failed to download {0} from {1}, {2}", code, url, e);
+                throw;
             }
         }
 
-        private async void GetEmotesForChannel(int id)
+        private void AddEmote(string channel_name, int emote_id, string code, string variant)
+        {
+            emotes[code + variant] = new EmoteInfo(
+                filepath: GenerateFilepathForEmote(channel_name, emote_id, code, variant),
+                channelName: channel_name,
+                url: $"https://static-cdn.jtvnw.net/emoticons/v2/{emote_id + variant}/default/dark/3.0",
+                id: emote_id,
+                code: code,
+                variant: variant
+            );
+        }
+
+        private async Task GetEmotesForChannel(int id, string channelKey)
         {
             _mod.Logger.Notification($"downloading emotes for {id}");
-            var response = await client.GetAsync($"https://api.twitchemotes.com/api/v4/channels/{id}");
+            var response = await _client.GetAsync($"https://api.twitchemotes.com/api/v4/channels/{id}");
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _mod.Logger.Error("no channel found for {0} {1}", channelKey, id);
+                return;
+            }
             var result = await response.Content.ReadAsStringAsync();
             if (result == null)
             {
                 _mod.Logger.Error("error parsing response from {0}", id);
                 return;
             }
+
             // _mod.Logger.Notification("parsing {0}", result);
             var parsed = JsonConvert.DeserializeObject<ChannelResponse>(result);
-            
+
+            var sucessfulEmotes = new List<string>();
             foreach (var emote in parsed.emotes)
             {
-                _mod.Logger.Notification($"storing {emote.code} from id {id}");
-                // DownloadEmote
-                DownloadEmote(parsed.channel_name, emote.id, emote.code, "",$"https://static-cdn.jtvnw.net/emoticons/v2/{emote.id}/default/dark/1.0");
-                DownloadEmote(parsed.channel_name, emote.id, emote.code+"_BW" ,"_BW", $"https://static-cdn.jtvnw.net/emoticons/v2/{emote.id}_BW/default/dark/1.0");
-                DownloadEmote(parsed.channel_name, emote.id, emote.code+"_HF" ,"_HF", $"https://static-cdn.jtvnw.net/emoticons/v2/{emote.id}_HF/default/dark/1.0");
-                DownloadEmote(parsed.channel_name, emote.id, emote.code+"_SG" ,"_SG", $"https://static-cdn.jtvnw.net/emoticons/v2/{emote.id}_SG/default/dark/1.0");
-                DownloadEmote(parsed.channel_name, emote.id, emote.code+"_SQ" ,"_SQ", $"https://static-cdn.jtvnw.net/emoticons/v2/{emote.id}_SQ/default/dark/1.0");
-                DownloadEmote(parsed.channel_name, emote.id, emote.code+"_TK" ,"_TK", $"https://static-cdn.jtvnw.net/emoticons/v2/{emote.id}_TK/default/dark/1.0");
+                try
+                {
+                    _mod.Logger.Notification($"loading {parsed.channel_name} {emote.code} from id {id}");
+                    AddEmote(parsed.channel_name, emote.id, emote.code, "");
+                    AddEmote(parsed.channel_name, emote.id, emote.code, "_BW");
+                    AddEmote(parsed.channel_name, emote.id, emote.code, "_HF");
+                    AddEmote(parsed.channel_name, emote.id, emote.code, "_SG");
+                    AddEmote(parsed.channel_name, emote.id, emote.code, "_SQ");
+                    AddEmote(parsed.channel_name, emote.id, emote.code, "_TK");
+                    sucessfulEmotes.Add(emote.code);
+                }
+                catch (Exception e)
+                {
+                    _mod.Logger.Error("encountered error loading {0} {1} exception: {2}", channelKey, emote.code, e);
+                    continue;
+                }
             }
+
+            emotesByChannel[channelKey] = sucessfulEmotes.ToArray();
+        }
+
+        private async Task<int?> ChannelIdFromName(string channel_name)
+        {
+            if (channel_name.ToLower() == "twitch") return 0;
+            var handler = new HttpClientHandler() {AllowAutoRedirect = false};
+
+            // Create an HttpClient object
+            HttpClient client = new HttpClient(handler);
+            try
+            {
+                HttpRequestMessage httpRequest = new(HttpMethod.Post, "https://www.twitchemotes.com/search/channel");
+
+                // httpRequest.Content = new StringContent(xml.Document.ToString(), Encoding.UTF8, "application/vnd.citrix.sessionstate+xml");
+                httpRequest.Headers.Referrer = new Uri("https://www.twitchemotes.com/");
+
+                httpRequest.Content = new FormUrlEncodedContent(
+                    nameValueCollection: new KeyValuePair<string, string>[] {new("query", channel_name)}
+                );
+                var response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
+
+                _mod.Logger.Notification("response status: {0}", response.StatusCode);
+                var location = response.Headers.Location;
+                _mod.Logger.Notification("location for {0}: {1}", channel_name, location);
+
+                if (location == null)
+                {
+                    _mod.Logger.Error("failed getting channel id for {0}", channel_name);
+                    return null;
+                }
+
+                string idString = location.ToString().Substring("/channel/".Length + 1);
+                _mod.Logger.Notification("trying to parse {0}", idString);
+
+                return int.Parse(idString);
+            }
+            catch (Exception e)
+            {
+                _mod.Logger.Error("failed getting channel id for {0} exception: \n{1}", channel_name, e);
+                throw;
+            }
+            finally
+            {
+                client.Dispose();
+            }
+        }
+
+        private string GenerateFilepathForEmote(string channel_name, int emote_id, string code, string variant)
+        {
+            var cleanedName = code
+                .Replace("\\&gt", ">")
+                .Replace("\\&lt", "<")
+                .Replace("\\", "");
+            if (code.Contains("[") && code.Contains("]"))
+            {
+                cleanedName = emote_id.ToString();
+            }
+
+            var filename = cleanedName + variant;
+            var invalids = Path.GetInvalidFileNameChars();
+            filename = String.Join("_", filename.Split(invalids, StringSplitOptions.RemoveEmptyEntries))
+                .TrimEnd('.');
+            return Path.Combine(_api.DataBasePath, "Cache", "twitchemotes", channel_name,
+                filename + ".png");
         }
     }
 }
