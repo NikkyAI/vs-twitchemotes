@@ -6,7 +6,6 @@ namespace TwitchEmotes
     internal class ModConfig
     {
         public string[] channels = {
-            "Twitch",
             "LunarLight",
             "lemmaeof",
             "kainei",

@@ -15,7 +15,7 @@ namespace TwitchEmotes
 
         private static Mod _mod;
         private static ModConfig? _config;
-        private static TwitchEmoteUtil _emoteUtilUtil;
+        private static TwitchEmoteUtil _emoteUtil;
 
         private static ModConfig Config => _config ?? throw new NullReferenceException("config is not initialized yet");
 
@@ -23,7 +23,7 @@ namespace TwitchEmotes
         {
             _mod = base.Mod;
             LoadConfig(api);
-            _emoteUtilUtil = new TwitchEmoteUtil(_mod, api, Config.channels);
+            _emoteUtil = new TwitchEmoteUtil(_mod, api, Config.channels);
 
             base.Mod.Logger.Debug("registering command");
             VtmlUtil.TagConverters.Add(
@@ -40,7 +40,7 @@ namespace TwitchEmotes
                         raw = null;
                     }
 
-                    if (!_emoteUtilUtil.emotes.TryGetValue(emoteKey, out var emote))
+                    if (!_emoteUtil.emotes.TryGetValue(emoteKey, out var emote))
                     {
                         _mod.Logger.Error("missing '{0}' in emotes", emoteKey);
                         return new IconComponent(coreApi, "none", stack.Peek());
@@ -53,7 +53,7 @@ namespace TwitchEmotes
                         return new IconComponent(coreApi, "none", stack.Peek());
                     }
                     
-                    TwitchIconComponent iconComponent = new(coreApi, _mod, stack.Peek(), emoteKey, raw, _emoteUtilUtil);
+                    TwitchIconComponent iconComponent = new(coreApi, _mod, stack.Peek(), emoteKey, raw, _emoteUtil);
                     return (RichTextComponentBase) iconComponent;
                 }
             );
@@ -64,13 +64,13 @@ namespace TwitchEmotes
                 "test",
                 (id, args) =>
                 {
-                    var count = _emoteUtilUtil.emotesByChannel.Values.Sum(list => list.Length);
-                    var modifiedCount = _emoteUtilUtil.emotes.Keys.Count - count;
+                    var count = _emoteUtil.emotesByChannel.Values.Sum(list => list.Length);
+                    var modifiedCount = _emoteUtil.emotes.Keys.Count - count;
                     api.ShowChatMessage($"emotes: {count} ({modifiedCount})");
                     
-                    foreach (var channelKey in Config.channels)
+                    foreach (var channelKey in _emoteUtil.channels)
                     {
-                        if (!_emoteUtilUtil.emotesByChannel.TryGetValue(channelKey, out var emotes)) continue;
+                        if (!_emoteUtil.emotesByChannel.TryGetValue(channelKey, out var emotes)) continue;
                         api.ShowChatMessage($"{channelKey} ({emotes.Length}): ");
                         _mod.Logger.Error("emotes: {0}", string.Join(" ", emotes));
                         api.ShowChatMessage(string.Join(" ", emotes));
@@ -90,8 +90,8 @@ namespace TwitchEmotes
                         return;
                     }
                     Mod.Logger.Debug("executing .emotevariants {0}", emoteKey);
-                    var emoteKeys = _emoteUtilUtil.emotes.Keys.Where(k => k.StartsWith(emoteKey)).ToList();
-                    Mod.Logger.Debug("all: {0}", string.Join(" ", _emoteUtilUtil.emotes.Keys));
+                    var emoteKeys = _emoteUtil.emotes.Keys.Where(k => k.StartsWith(emoteKey)).ToList();
+                    Mod.Logger.Debug("all: {0}", string.Join(" ", _emoteUtil.emotes.Keys));
                     Mod.Logger.Debug("found {0} emotes", emoteKeys.Count);
                     emoteKeys.Sort();
                     
@@ -142,7 +142,7 @@ namespace TwitchEmotes
                     .Select(word =>
                         {
                             // TODO word to emoteKey
-                            var emoteKey = _emoteUtilUtil.GetEmotKeyFromWord(word);
+                            var emoteKey = _emoteUtil.GetEmotKeyFromWord(word);
                             if (emoteKey == null) return word;
                             //TODO somehow do not block here
                             _mod.Logger.Debug("found twitch icon: '{0}'", emoteKey);

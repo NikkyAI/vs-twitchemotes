@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -24,6 +25,8 @@ namespace TwitchEmotes
         public ConcurrentDictionary<string, EmoteInfo> emotes = new();
 
         public ConcurrentDictionary<string, string[]> emotesByChannel = new();
+        public List<string> channels = new ();
+        private const string CLIENT_ID = "abe7gtyxbr7wfcdftwyi9i5kej3jnq";
 
         public TwitchEmoteUtil(Mod mod, ICoreClientAPI api, string[] channels)
         {
@@ -31,15 +34,12 @@ namespace TwitchEmotes
             _api = api;
 
             _mod.Logger.Notification($"loading emotes for {channels.Length} channels");
-            foreach (var channel in channels)
+            var channelResponse = ChannelIdFromName(channels).Result;
+            GetEmotesForChannel(0, "Twitch").Wait();
+            foreach (var user in channelResponse.users)
             {
-                _mod.Logger.Notification($"loading emotes for channel: {channel}");
-                var channel_id = ChannelIdFromName(channel).Result;
-                if (channel_id != null)
-                {
-                    _mod.Logger.Notification($"loading emotes for channel: {channel_id}");
-                    GetEmotesForChannel((int) channel_id, channel).Wait();
-                }
+                _mod.Logger.Notification($"loading emotes for channel: {user.display_name}");
+                GetEmotesForChannel(int.Parse(user._id), user.display_name).Wait();
             }
         }
 
@@ -138,6 +138,7 @@ namespace TwitchEmotes
             }
 
             emotesByChannel[channelKey] = sucessfulEmotes.ToArray();
+            channels.Add(channelKey);
         }
 
         private string AddEmote(string channel_name, int emote_id, string code, string variant)
@@ -158,45 +159,13 @@ namespace TwitchEmotes
             return emote.Key;
         }
 
-        private async Task<int?> ChannelIdFromName(string channel_name)
+        private async Task<UserResponse> ChannelIdFromName(string[] channelNames)
         {
-            if (channel_name.ToLower() == "twitch") return 0;
-            using var handler = new HttpClientHandler() {AllowAutoRedirect = false};
+            var response = await _client.GetStringAsync(
+                $"https://api.twitch.tv/kraken/users?api_version=5&client_id={CLIENT_ID}&login={string.Join(",", channelNames)}"
+            );
 
-            // Create an HttpClient object
-            using HttpClient client = new(handler);
-            try
-            {
-                HttpRequestMessage httpRequest = new(HttpMethod.Post, "https://www.twitchemotes.com/search/channel");
-
-                httpRequest.Headers.Referrer = new Uri("https://www.twitchemotes.com/");
-
-                httpRequest.Content = new FormUrlEncodedContent(
-                    nameValueCollection: new KeyValuePair<string, string>[] {new("query", channel_name)}
-                );
-                var response = await client.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
-
-                _mod.Logger.Notification("response status: {0}", response.StatusCode);
-                var location = response.Headers.Location;
-                _mod.Logger.Notification("location for {0}: {1}", channel_name, location);
-
-                if (location == null)
-                {
-                    _mod.Logger.Error("failed getting channel id for {0}", channel_name);
-                    return null;
-                }
-
-                var idString = Path.GetFileName(location.ToString());
-                // string idString = location.ToString().Substring("/channels/".Length + 1);
-                _mod.Logger.Notification("trying to parse {0}", idString);
-
-                return int.Parse(idString);
-            }
-            catch (Exception e)
-            {
-                _mod.Logger.Error("failed getting channel id for {0} exception: \n{1}", channel_name, e);
-                return null;
-            }
+            return JsonConvert.DeserializeObject<UserResponse>(response);
         }
     }
 }
