@@ -8,32 +8,68 @@ namespace TwitchEmotes
 {
     public class TwitchIconComponent : RichTextComponentBase
     {
-        private CairoFont _font;
-        private Mod _mod;
-        private string _emoteKey;
-        private string _filepath;
+        private readonly CairoFont _font;
+        private readonly Mod _mod;
+        private readonly string _tooltipText;
+        private readonly TextDrawUtil textUtil = new();
+
+        private readonly TwitchEmoteUtil _emotUtilUtil;
+        private readonly EmoteInfo _emote;
+
         private LoadedTexture hoverText;
         private LoadedTexture zoomed;
-        private TextDrawUtil textUtil = new();
-
         private TextLine[] lines;
 
-        public TwitchIconComponent(ICoreClientAPI api, Mod mod, CairoFont font, string emoteKey, string filepath)
+        public TwitchIconComponent(ICoreClientAPI api, Mod mod, CairoFont font, string emoteKey, string raw,
+            TwitchEmoteUtil? emoteUtilUtil)
             : base(api)
         {
             _mod = mod;
-            _emoteKey = emoteKey;
             _font = font;
-            _filepath = filepath;
             hoverText = new LoadedTexture(api);
             zoomed = new LoadedTexture(api);
+
+            _emotUtilUtil = emoteUtilUtil;
+            if (!_emotUtilUtil.emotes.TryGetValue(emoteKey, out var emote))
+            {
+                _mod.Logger.Error("cannot get emote for key {0}", _tooltipText);
+                return;
+            }
+
+            _emote = emote;
+            raw = raw.Replace("&gt;", ">").Replace("&lt;", "<");
+            var regex = _emote.Code.Replace("\\&gt\\;", ">").Replace("\\&lt\\;", "<");
+            _tooltipText = !_emote.IsRegex ? _emote.Code : (raw + " regex: " + regex);
         }
 
         public override void ComposeElements(Context ctxStatic, ImageSurface surface)
         {
-            _mod.Logger.Debug("rendering emote {0}", _emoteKey);
-            var textureSurface = new ImageSurface(_filepath);
-            var pattern = new SurfacePattern(textureSurface);
+            _mod.Logger.Debug("rendering emote {0}", _tooltipText);
+
+
+            ImageSurface textureSurface;
+            if (_emote.ImageData != null)
+            {
+                var imageData = _emote.ImageData;
+                textureSurface = (ImageSurface) ImageSurface.CreateForImage(imageData.Data, imageData.Format,
+                    imageData.Width, imageData.Height);
+            }
+            else
+            {
+                // ensure that the download finished
+                _emote.DownloadTask.Wait();
+                textureSurface = new ImageSurface(_emote.Filepath);
+
+                // TODO store image data
+                _emote.ImageData = new ImageData(
+                    data: textureSurface.Data,
+                    format: textureSurface.Format,
+                    width: textureSurface.Width,
+                    height: textureSurface.Height
+                );
+            }
+
+            using var pattern = new SurfacePattern(textureSurface);
 
             var x = BoundsPerLine[0].X;
             var y = BoundsPerLine[0].Y;
@@ -66,12 +102,12 @@ namespace TwitchEmotes
             ctxStatic.Restore();
 
             var scaleZoomed = scale * 3;
-            ImageSurface zoomedSurface = new(
-                Format.Argb32, 
-                (int) (imageWidth * scaleZoomed), 
+            using ImageSurface zoomedSurface = new(
+                Format.Argb32,
+                (int) (imageWidth * scaleZoomed),
                 (int) (imageHeight * scaleZoomed)
             );
-            Context zoomedCtx = new(zoomedSurface);
+            using Context zoomedCtx = new(zoomedSurface);
             Matrix matrix2 = zoomedCtx.Matrix;
             matrix2.Scale(scaleZoomed, scaleZoomed);
             zoomedCtx.Matrix = matrix2;
@@ -87,9 +123,7 @@ namespace TwitchEmotes
             zoomedCtx.FillRule = FillRule.Winding;
             zoomedCtx.FillPreserve();
             zoomedCtx.Restore();
-            this.api.Gui.LoadOrUpdateCairoTexture(zoomedSurface, false, ref this.zoomed);
-            zoomedSurface.Dispose();
-            zoomedCtx.Dispose();
+            api.Gui.LoadOrUpdateCairoTexture(zoomedSurface, false, ref this.zoomed);
 
 
             var leftMostX = 999999.0;
@@ -105,12 +139,10 @@ namespace TwitchEmotes
                 bottomMostY = Math.Max(bottomMostY, line.Bounds.Y + line.Bounds.Height);
             }
 
-            ImageSurface hoverSurface = new(Format.Argb32, (int) (rightMostX - leftMostX),
+            using ImageSurface hoverSurface = new(Format.Argb32, (int) (rightMostX - leftMostX),
                 (int) (bottomMostY - topMostY));
-            Context hoverCtx = new(hoverSurface);
-            // ctx.Antialias = Antialias.Default;
-            // ctx.FillRule = FillRule.Winding;
-            hoverCtx.SetSourceRGBA(0.0, 0.0, 0.0, 0.5);
+            using Context hoverCtx = new(hoverSurface);
+            hoverCtx.SetSourceRGBA(0.0, 0.0, 0.0, 0.75);
             hoverCtx.Paint();
             hoverCtx.Save();
             Matrix matrix = hoverCtx.Matrix;
@@ -118,14 +150,12 @@ namespace TwitchEmotes
             hoverCtx.Matrix = matrix;
 
             hoverCtx.LineWidth = 1.0;
-            hoverCtx.SetSourceRGBA(this._font.Color);
+            // hoverCtx.SetSourceRGBA(this._font.Color);
+            hoverCtx.SetSourceRGBA(1.0, 1.0, 1.0, 1.0);
+            _font.Color = new[] { 1.0, 1.0, 1.0, 1.0 };
             this.textUtil.DrawMultilineText(hoverCtx, this._font, this.lines);
             hoverCtx.Restore();
             this.api.Gui.LoadOrUpdateCairoTexture(hoverSurface, false, ref this.hoverText);
-            hoverSurface.Dispose();
-            hoverCtx.Dispose();
-
-            pattern?.Dispose();
             textureSurface.Dispose();
         }
 
@@ -135,8 +165,8 @@ namespace TwitchEmotes
             bool flag = false;
             foreach (var rectangled in this.BoundsPerLine)
             {
-                if (rectangled.PointInside((double) this.api.Input.MouseX - renderX,
-                    (double) this.api.Input.MouseY - renderY))
+                if (rectangled.PointInside(this.api.Input.MouseX - renderX,
+                    this.api.Input.MouseY - renderY))
                 {
                     this.api.Render.Render2DTexturePremultipliedAlpha(this.zoomed.TextureId,
                         this.api.Input.MouseX + 20, this.api.Input.MouseY - this.zoomed.Height, this.zoomed.Width,
@@ -155,12 +185,12 @@ namespace TwitchEmotes
             double lineY
         )
         {
-            lines = textUtil.Lineize(this._font, _emoteKey, flowPath, lineX + this.PaddingLeft, lineY);
+            lines = textUtil.Lineize(this._font, _tooltipText, flowPath, lineX + this.PaddingLeft, lineY);
             BoundsPerLine = new LineRectangled[1]
             {
-                new(lineX, lineY, 
+                new(lineX, lineY,
                     GuiElement.scaled(this._font.UnscaledFontsize),
-                    GuiElement.scaled(this._font.UnscaledFontsize) 
+                    GuiElement.scaled(this._font.UnscaledFontsize)
                 )
             };
             return false;

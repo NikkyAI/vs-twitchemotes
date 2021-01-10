@@ -2,7 +2,7 @@
 	"type": "code",
 	"name": "Twitch Emotes",
 	"modid": "twitchemotes",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	
 	"description" : "Display Twitch Emotes",
 	"website": "https://github.com/Nikky/vs-twitchemotes",

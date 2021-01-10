@@ -1,12 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions;
 using HarmonyLib;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.Client.NoObf;
-using Vintagestory.Common;
 
 namespace TwitchEmotes
 {
@@ -17,8 +14,8 @@ namespace TwitchEmotes
         // ReSharper restore InconsistentNaming
 
         private static Mod _mod;
-        private static TwitchEmotes _emotes;
         private static ModConfig? _config;
+        private static TwitchEmoteUtil _emoteUtilUtil;
 
         private static ModConfig Config => _config ?? throw new NullReferenceException("config is not initialized yet");
 
@@ -26,22 +23,37 @@ namespace TwitchEmotes
         {
             _mod = base.Mod;
             LoadConfig(api);
-            _emotes = new TwitchEmotes(_mod, api, Config.channels);
+            _emoteUtilUtil = new TwitchEmoteUtil(_mod, api, Config.channels);
 
             base.Mod.Logger.Debug("registering command");
             VtmlUtil.TagConverters.Add(
                 "twitch_icon",
                 (coreApi, token, stack, link) =>
                 {
-                    token.Attributes.TryGetValue("name", out string emoteKey);
-                    var filepath = _emotes.GetEmoteFilepath(emoteKey);
-                    if (filepath == null)
+                    if (!token.Attributes.TryGetValue("emotekey", out string emoteKey))
                     {
-                        _mod.Logger.Error("failed getting filepath of {0}", emoteKey);
-                        throw new Exception($"failed getting filepath of {emoteKey}");
+                        _mod.Logger.Error("missing 'emoteKey' in twitch_icon tag, attributes: {0}", string.Join(" ", token.Attributes.Keys));
+                        return new IconComponent(coreApi, "none", stack.Peek());
+                    }
+                    if (!token.Attributes.TryGetValue("raw", out string? raw))
+                    {
+                        raw = null;
                     }
 
-                    TwitchIconComponent iconComponent = new(coreApi, _mod, stack.Peek(), emoteKey, filepath);
+                    if (!_emoteUtilUtil.emotes.TryGetValue(emoteKey, out var emote))
+                    {
+                        _mod.Logger.Error("missing '{0}' in emotes", emoteKey);
+                        return new IconComponent(coreApi, "none", stack.Peek());
+                    }
+
+                    var success = emote.DownloadTask.Result;
+                    if (success != true)
+                    {
+                        _mod.Logger.Error("emote '{0}' marked as failing", emoteKey);
+                        return new IconComponent(coreApi, "none", stack.Peek());
+                    }
+                    
+                    TwitchIconComponent iconComponent = new(coreApi, _mod, stack.Peek(), emoteKey, raw, _emoteUtilUtil);
                     return (RichTextComponentBase) iconComponent;
                 }
             );
@@ -52,23 +64,16 @@ namespace TwitchEmotes
                 "test",
                 (id, args) =>
                 {
-                    var count = _emotes.emotesByChannel.Values.Sum(list => list.Length);
-                    var modifiedCount = _emotes.emotes.Keys.Count - count;
+                    var count = _emoteUtilUtil.emotesByChannel.Values.Sum(list => list.Length);
+                    var modifiedCount = _emoteUtilUtil.emotes.Keys.Count - count;
                     api.ShowChatMessage($"emotes: {count} ({modifiedCount})");
                     
                     foreach (var channelKey in Config.channels)
                     {
-                        if (!_emotes.emotesByChannel.TryGetValue(channelKey, out var emotes)) continue;
-                        var pageSize = 20;
+                        if (!_emoteUtilUtil.emotesByChannel.TryGetValue(channelKey, out var emotes)) continue;
                         api.ShowChatMessage($"{channelKey} ({emotes.Length}): ");
+                        _mod.Logger.Error("emotes: {0}", string.Join(" ", emotes));
                         api.ShowChatMessage(string.Join(" ", emotes));
-                        // foreach (var emote in emotes)
-                        // {
-                        //     if (!_emotes.emotes.ContainsKey(emote))
-                        //     {
-                        //         _mod.Logger.Error($"missing {emote}");
-                        //     }
-                        // }
                     }
                 }
             );
@@ -85,8 +90,8 @@ namespace TwitchEmotes
                         return;
                     }
                     Mod.Logger.Debug("executing .emotevariants {0}", emoteKey);
-                    var emoteKeys = _emotes.emotes.Keys.Where(k => k.StartsWith(emoteKey)).ToList();
-                    Mod.Logger.Debug("all: {0}", string.Join(" ", _emotes.emotes.Keys));
+                    var emoteKeys = _emoteUtilUtil.emotes.Keys.Where(k => k.StartsWith(emoteKey)).ToList();
+                    Mod.Logger.Debug("all: {0}", string.Join(" ", _emoteUtilUtil.emotes.Keys));
                     Mod.Logger.Debug("found {0} emotes", emoteKeys.Count);
                     emoteKeys.Sort();
                     
@@ -136,15 +141,12 @@ namespace TwitchEmotes
                     .Split(" ".ToCharArray())
                     .Select(word =>
                         {
-                            //TODO: somehow do not block here
-                            var filepath = _emotes.GetEmoteFilepathAsync(word).Result; 
-                            if (filepath != null)
-                            {
-                                _mod.Logger.Debug("found twitch icon: '{0}'", word);
-                                return $"<twitch_icon name=\"{word}\"/>";
-                            }
-
-                            return word;
+                            // TODO word to emoteKey
+                            var emoteKey = _emoteUtilUtil.GetEmotKeyFromWord(word);
+                            if (emoteKey == null) return word;
+                            //TODO somehow do not block here
+                            _mod.Logger.Debug("found twitch icon: '{0}'", emoteKey);
+                            return $"<twitch_icon emotekey=\"{emoteKey}\" raw=\"{word}\"/>";
                         }
                     )
                     .Join(delimiter: " ");
