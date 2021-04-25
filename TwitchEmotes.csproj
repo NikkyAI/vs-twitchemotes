@@ -42,7 +42,7 @@
 			<HintPath>$(VINTAGE_STORY)/Lib/Newtonsoft.Json.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<PackageReference Include="System.Net.Http" Version="4.0.0">
+		<PackageReference Include="System.Net.Http" Version="4.3.4">
 			<Private>false</Private>
 		</PackageReference>
 	</ItemGroup>
